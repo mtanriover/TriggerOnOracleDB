@@ -1,2 +1,2 @@
-# TriggerOnOracleDB
+# TriggerSampleOnOracleDB
 When you make a debt payment to your service provider, if your service has been terminated due to your debt, it is an example of a trigger that completes the software process necessary for you to receive service again in return for the payment you made. This trigger, which I developed, is now actively used in all payment channels of a municipal water utility. Table names and field names have been changed for confidentiality reasons.
