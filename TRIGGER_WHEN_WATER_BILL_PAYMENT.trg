@@ -1,8 +1,8 @@
-DROP TRIGGER db.trigger_name;
+DROP TRIGGER UKBS.TR_TAHSIL_BORCTAN_KESME;
 
-CREATE OR REPLACE TRIGGER db.trigger_name
+CREATE OR REPLACE TRIGGER UKBS.TR_TAHSIL_BORCTAN_KESME
    AFTER INSERT 
-   ON db.bgs_tahsil
+   ON ukbs.bgs_tahsil
    FOR EACH ROW
 DECLARE
    ll_borctan_kesme number;
@@ -15,12 +15,6 @@ DECLARE
    ll_tutanak char;
    ll_acma_kesme number;
    ll_bolge_no number;
-   ll_mesai_ici_sis_kullanici number;
-   ll_mesai_disi_sis_kullanici number;
-   ll_sonraki_gun_sis_kullanici number;
-   ll_is_atanan_sis_kullanici number;
-   ll_bsu_ekip_no number;
-   ll_bsu_sms_sonuc LONG;
    ll_borc_tutari decimal(12,2);
    
 BEGIN
