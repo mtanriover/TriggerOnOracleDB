@@ -1,0 +1,150 @@
+CREATE OR REPLACE PROCEDURE UKBS.BSU_OTO_BORCTAN_ACMA_OLUSTUR(    
+    MIN_BORC_TUTARI IN  NUMBER  
+)  
+AS
+ll_borctan_kesme number;
+ll_bsu_donem_no long;
+ll_abone_no long;
+ll_bsu_ariza_no long;
+ll_tutar decimal(5,2);
+ll_tam_odeme boolean;
+ll_kapama_turu char;
+ll_tutanak char;
+ll_acma_kesme number;
+ll_bolge_no number;
+ll_mesai_ici_sis_kullanici number;
+ll_mesai_disi_sis_kullanici number;
+ll_sonraki_gun_sis_kullanici number;
+ll_is_atanan_sis_kullanici number;
+ll_bsu_ekip_no number;
+ll_bsu_sms_sonuc LONG;
+ll_sbs_muhatap_no number;
+   
+ll_bsu_beyan_no number;    
+ll_borc_tutari number (12,2);
+ll_min_tutar number (12,2);
+
+-- otomatik acma tablosuna insert edilen ve halen açma işlemi onaylanmayan kayıtları getir.
+cursor bsu_oto_acma_cur is  select bsu_beyan_no from bsu_borctan_acma_log 
+        where ((to_Date(islemtar) = to_Date(sysdate) - 1) or (to_Date(islemtar) = to_Date(sysdate))) and acildi='H' and bsu_ariza_no = 0; 
+
+BEGIN
+
+ll_min_tutar := MIN_BORC_TUTARI;
+
+if ll_min_tutar is null 
+then ll_min_tutar:=0;
+end if;
+
+open bsu_oto_acma_cur;
+
+    loop
+
+     FETCH bsu_oto_acma_cur INTO  ll_bsu_beyan_no;
+                        EXIT WHEN bsu_oto_acma_cur%NOTFOUND;  
+                                   
+           IF ll_bsu_beyan_no >0 THEN
+           
+            select coalesce(sum(borc_tutari),0) into ll_borc_tutari from bgs_tahak where kapama_turu='A' and to_date(vade_tarihi) <= to_date(sysdate) and bgs_beyan_no = ll_bsu_beyan_no;
+            
+            select sbs_muhatap_no, numarataj into ll_sbs_muhatap_no, ll_abone_no from bsu_beyan where no = ll_bsu_beyan_no;    
+            
+            select 
+            (select coalesce(bsu_bolge_no,0) from bsu_defter where no in (select a.bsu_defter_no from bsu_beyan a where a.no = bsu_beyan.no))
+            into
+            ll_bolge_no
+            from bsu_beyan where no = ll_bsu_beyan_no; --- ABONE NO BUL        
+            
+            if ll_borc_tutari <= ll_min_tutar then --- abonenin borcu yok veya borcu min tutardan küçük ise...(24.10.2022 TARİHİNDE OTOMATİK BORÇTAN AÇMA İŞ EMRİ KOŞULUNA ABONE VE STRATEJİ KARAIYLA VADESİ GEÇMİŞ BORCUNUN OLMAMASI DURUMU DA EKLENDİ (MURAT T.))
+            
+            select max(no) into ll_bsu_donem_no from bsu_donem where aktif='E'; -- AKTİF DÖNEMİ BUL
+            
+            begin 
+               select 
+               coalesce(mesai_sis_kullanici_no,0), 
+               coalesce(mesai_disi_sis_kullanici_no,0), 
+               (select coalesce(max(a.mesai_sis_kullanici_no),0) from acma_kesme_nobet a where a.bsu_bolge_no = acma_kesme_nobet.bsu_bolge_no and to_date(sysdate) + 1 = to_date(tarih)) 
+               into ll_mesai_ici_sis_kullanici, 
+               ll_mesai_disi_sis_kullanici, 
+               ll_sonraki_gun_sis_kullanici  
+               from acma_kesme_nobet 
+               where acma_kesme_nobet.bsu_bolge_no = ll_bolge_no  and to_date(acma_kesme_nobet.TARIH) = to_date(SYSDATE);
+               exception WHEN NO_DATA_FOUND THEN
+               ll_mesai_ici_sis_kullanici   :=0;
+               ll_mesai_disi_sis_kullanici  :=0;
+               ll_sonraki_gun_sis_kullanici :=0;
+               ll_is_atanan_sis_kullanici   :=0;
+            end;
+                        
+            if (SYSDATE >= TRUNC(SYSDATE)+17/24 and SYSDATE <=TRUNC(SYSDATE)+22/24) THEN -- 8:5 mesai dışındaysa
+                ll_is_atanan_sis_kullanici := ll_mesai_disi_sis_kullanici;
+                else
+                ll_is_atanan_sis_kullanici := ll_mesai_ici_sis_kullanici;
+                END IF;               
+                
+                if (SYSDATE between TRUNC(SYSDATE)+22/24 and TRUNC(SYSDATE)+23.99/24) THEN -- 22-24 arası sonraki günden seç...
+                ll_is_atanan_sis_kullanici := ll_sonraki_gun_sis_kullanici;
+                END IF;  
+
+                
+                IF ll_is_atanan_sis_kullanici is null then
+                ll_is_atanan_sis_kullanici:=0;
+                END IF;
+                
+                select coalesce(max(no),0) into ll_bsu_ekip_no from bsu_ekip where kullanici_no = ll_is_atanan_sis_kullanici;
+                            
+                SELECT bsu_ariza_no.NEXTVAL INTO ll_bsu_ariza_no FROM DUAL;
+                
+                insert into bsu_ariza --- BSU_ARIZA INSERT
+                (
+                no, 
+                bsu_beyan_no, 
+                bsu_donem_no, 
+                sbs_muhatap_no, 
+                bsu_arizatur_no, 
+                bildirim_tarihi, 
+                bil_aciklama, 
+                sis_kullanici_no, 
+                islemtar, 
+                tahakkuk_olustur, 
+                islem_turu, 
+                numarataj, 
+                bildirim_saati, 
+                tutanak,
+                kacak_kullanim,
+                personel_no
+                )
+                values
+                (
+                ll_bsu_ariza_no,
+                ll_bsu_beyan_no,
+                ll_bsu_donem_no,
+                ll_sbs_muhatap_no,
+                0,
+                to_date(SYSDATE),
+                'Tahsilat sonucu otomatik oluşan iş emri',
+                ll_is_atanan_sis_kullanici,
+                SYSDATE,
+                'H',
+                1,
+                ll_abone_no,
+                TO_CHAR(SYSDATE,'HH24'),
+                'H',
+                'H',
+                ll_bsu_ekip_no       
+                );commit;
+                               
+                ll_bsu_sms_sonuc:= OF_BSU_SMS_KAYDET(ll_bsu_ariza_no);
+             
+               update BSU_BORCTAN_ACMA_LOG set acildi='E', BSU_ARIZA_NO=ll_bsu_ariza_no --ARIZA KAYDI INSERT EDILDIKTEN SONRA LOG TABLOSUNU UPDATE ET
+               where BSU_BEYAN_NO = ll_bsu_beyan_no 
+               and to_date(islemtar)=to_date(sysdate); commit;           
+                        
+            end if;
+                      
+           END IF;             
+
+    end loop;
+
+END;
+/
